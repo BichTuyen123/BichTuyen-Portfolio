@@ -1,6 +1,6 @@
 [← Quay lại portfolio](../../README.md)
 
-# Tên dự án
+# Predictive Financial Analytics and Risk Assessment Using Python
 
 ## Overview
 Dự án này xây dựng một báo cáo tự động về tình hình của các cổ phiếu được chọn bằng ngôn ngữ lập trình Python.

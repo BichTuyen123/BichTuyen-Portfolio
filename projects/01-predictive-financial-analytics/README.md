@@ -1,21 +1,30 @@
 [← Quay lại portfolio](../../README.md)
 
-# Chương trình Onboarding 90 ngày
+# Tên dự án
 
-## Tóm tắt
+## Overview
 Viết 2–3 câu.
 
-## Bối cảnh
-...
+## Project Structure
+Viết 2–3 câu.
 
-## Vấn đề
-...
+## Dataset
+Viết 2–3 câu.
 
-## Cách tiếp cận
-- ...
+## Database
+- Viết 2–3 câu.
 
-## Kết quả
-...
+## Data Processing
+Viết 2–3 câu.
 
-## Bài học
-...
+## Result
+Viết 2–3 câu.
+
+## Insight
+Viết 2–3 câu.
+
+## Technologies Used
+Viết 2–3 câu.
+
+## Report
+Viết 2–3 câu.

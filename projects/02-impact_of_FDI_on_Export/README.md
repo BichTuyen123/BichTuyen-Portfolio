@@ -1,5 +1,3 @@
-<img width="821" height="624" alt="Screenshot 2026-10-08 at 12 52 28" src="https://github.com/user-attachments/assets/be12cd31-34c0-4f2c-bd8a-5c450aece594" />[← Quay lại portfolio](../../README.md)
-
 # Impact of FDI on Export Using Stata
 
 ## Overview

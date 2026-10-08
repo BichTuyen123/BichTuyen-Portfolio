@@ -1,0 +1,1315 @@
+# python3 -m venv venv source venv/bin/activate
+# source venv/bin/activate
+# pip3 install streamlit
+# pip3 install vnstock
+# pip3 install plotly
+# python3 -m pip install bs4
+# pip3 install pyfolio-reloaded
+#python -m pip install -U matplotlib
+
+
+
+
+from yahoo_fin import stock_info as si
+import streamlit as st
+import yfinance as yf
+import numpy as np
+import pandas as pd
+from datetime import date, datetime, timedelta
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from matplotlib import pyplot as plt
+from vnstock import *
+import pprint
+from scipy import stats
+def listing_companies ():
+     """
+     This function returns the list of all available stock symbols from a csv file or a live api request.
+     Parameters: 
+     path (str): The path of the csv file to read from. Default is the path of the file 'listing_companies_enhanced-2023.csv'. You can find the latest updated file at `https://github.com/thinh-vu/vnstock/tree/main/src`
+     Returns: df (DataFrame): A pandas dataframe containing the stock symbols and other information. 
+     """
+     df = pd.read_csv('/Users/bichtuyen/Downloads/Listing_companies_vnstock.csv')
+     return df
+
+url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+html = requests.get(url).text
+df = pd.read_html(html, header=0)[0]
+tickersUS = df['Symbol'].tolist()
+ticker_US = ['-'] + tickersUS
+
+df9= listing_companies ()
+df11= df9['ticker']
+df12=df11.tolist()
+ticker_VN = ['-'] + df12
+
+country= st.sidebar.selectbox("Select a country", ['-','VIETNAM', 'UNITED STATE'])
+if country =='VIETNAM':
+# Chọn ngành:
+ params = { "exchangeName": "HOSE,HNX,UPCOM"}
+ indust = stock_screening_insights (params, size=1700, drop_lang='vi')
+ indust1 = list(set(indust['industryName.en']))
+ list_indust = st.sidebar.selectbox("Select industry", indust1)
+ condition= st.sidebar.text_area("Condition", )
+ sort = st.sidebar.text_area("Sort", )
+
+ if list_indust !='' and condition !='' and sort !='':
+  params1 = { "industryName": list_indust}
+  df2 = stock_screening_insights (params1, size=1700, drop_lang='vi')
+  df3= df2[['ticker', 'epsGrowth5Year', 'pe', 'pb','roe', 'marketCap']]
+
+# Điều kiện lọc
+  df4 = df3.query(str(condition))
+  top_3_rows = df4.nlargest(6, sort)
+# Chọn cổ phiếu:
+  df10= top_3_rows['ticker']
+  tickers = df10.tolist()
+  ticker_list = ['-'] + tickers
+  ticker = st.sidebar.selectbox("Select a ticker", ticker_list )
+ else:
+    ticker = st.sidebar.selectbox("Select a ticker",ticker_VN )
+#==============================================================================
+# Tab 1 Summary
+#==============================================================================
+ def tab1():
+    st.title("Summary")
+    st.write("Select ticker on the left to begin")
+    st.write(ticker)
+    
+    #The code below gets the quota table from Yahoo Finance. The streamlit page
+    #is divided into 2 columns and selected columns are displayed on each side of the page.
+
+    def getsummary(ticker):
+            table = financial_ratio(symbol= ticker, report_range='quarterly',is_all=False)
+            return table 
+    
+    c1, c2 = st.columns((1,1))
+    with c1:        
+        if ticker != '-':
+            summary = getsummary(ticker)
+            showsummary = summary.iloc[4:10,[0,1,2]]
+            st.dataframe(showsummary)
+            
+            
+    with c2:        
+        if ticker != '-':
+            summary = getsummary(ticker)
+            showsummary = summary.iloc[11:17,[0,1,2]]
+            st.dataframe(showsummary)
+    @st.cache_data
+    def getstockdata(ticker):
+        now = str(date.today())
+        start = str(date.today()- timedelta(days=3650))
+        stockdata = stock_historical_data(ticker, start, now , "1D")
+        return stockdata
+        
+    if ticker != '-':
+     chartdata = getstockdata(ticker) 
+     chartdata.rename(columns={"time":"Date"}, inplace= True)
+     chartdata2= chartdata.set_index(['Date'])
+     fig = px.area(chartdata2, chartdata2.index, chartdata2['close'])
+     fig.update_xaxes(
+               rangeslider_visible=True,
+               rangeselector=dict(
+                  buttons=list([
+                   dict(count=1, label="1M", step="month", stepmode="backward"),
+                   dict(count=6, label="6M", step="month", stepmode="backward"),
+                   dict(count=1, label="YTD", step="year", stepmode="todate"),
+                   dict(count=1, label="1Y", step="year", stepmode="backward"),
+                   dict(count=3, label="3Y", step="year", stepmode="backward"),
+                   dict(count=5, label="5Y", step="year", stepmode="backward"),
+                   dict(label = "MAX", step="all")
+                  ])
+               )
+     )
+     st.plotly_chart(fig)
+#==============================================================================
+# Tab 2 Chart
+#==============================================================================
+
+
+#The code below divides the streamlit page into 5 columns. The first two columns
+#have a date picker option to select start and end dates and the the other three
+#have dropdown selection boxes for duration, interval, and type of plot.
+
+ def tab2():
+    st.title("Chart")
+    st.write(ticker)
+    st.write("Set duration to '-' to select date range")
+    c1, c2, c3, c4 = st.columns((1,1,1,1))
+   
+    with c1: 
+        Start_date = st.date_input("Start date", datetime.today().date() - timedelta(days=120))  
+    with c2:
+        End_date = st.date_input("End date", datetime.today().date())                  
+    with c3: 
+        duration = st.selectbox("Select duration", ['-', '1Mo', '3Mo', '6Mo','1Y', '3Y','5Y', '10Y'])
+    with c4:
+        Plot = st.selectbox("Select plot", ['Line', 'Candle'])
+   
+    def getchartdata(ticker):
+        end = str(date.today())
+        start = str(date.today()- timedelta(days=3650))
+        SMA1 = stock_historical_data(ticker, start, end , resolution = '1D')
+        SMA1['SMA20'] = SMA1['close'].rolling(20).mean()
+        SMA1['SMA60'] = SMA1['close'].rolling(60).mean()
+        SMA1['SMA100'] = SMA1['close'].rolling(100).mean()
+        SMA1.rename(columns={"time":"Date"}, inplace= True)
+        SMA = SMA1[['Date','SMA20','SMA60', 'SMA100']]
+        
+        if duration =='1Mo':
+            end1 = str(date.today())
+            start1 = str(date.today()- timedelta(days=30))
+            chartdata1= stock_historical_data(ticker, start1, end1, resolution = '1D' )      
+            chartdata1.rename(columns={"time":"Date"}, inplace= True)
+            chartdata1 = chartdata1.merge(SMA, on='Date', how='left')
+            return chartdata1
+        if duration =='3Mo':
+            end2 = str(date.today())
+            start2 = str(date.today()- timedelta(days=90))
+            chartdata2= stock_historical_data(ticker, start2, end2, resolution = '1D' )      
+            chartdata2.rename(columns={"time":"Date"}, inplace= True)
+            chartdata2 = chartdata2.merge(SMA, on='Date', how='left')
+            return chartdata2
+        if duration =='6Mo':
+            end3 = str(date.today())
+            start3 = str(date.today()- timedelta(days=180))
+            chartdata3= stock_historical_data(ticker, start3, end3, resolution = '1D' )      
+            chartdata3.rename(columns={"time":"Date"}, inplace= True)
+            chartdata3 = chartdata3.merge(SMA, on='Date', how='left')
+            return chartdata3
+        if duration =='1Y':
+            end4 = str(date.today())
+            start4 = str(date.today()- timedelta(days=365))
+            chartdata4= stock_historical_data(ticker, start4, end4, resolution = '1D' )      
+            chartdata4.rename(columns={"time":"Date"}, inplace= True)
+            chartdata4 = chartdata4.merge(SMA, on='Date', how='left')
+            return chartdata4
+        if duration =='3Y':
+            end4 = str(date.today())
+            start4 = str(date.today()- timedelta(days=1095))
+            chartdata5= stock_historical_data(ticker, start4, end4, resolution = '1D' )      
+            chartdata5.rename(columns={"time":"Date"}, inplace= True)
+            chartdata5 = chartdata5.merge(SMA, on='Date', how='left')
+            return chartdata5
+        if duration =='5Y':
+            end6 = str(date.today())
+            start6 = str(date.today()- timedelta(days=1825))
+            chartdata6= stock_historical_data(ticker, start6, end6, resolution = '1D')      
+            chartdata6.rename(columns={"time":"Date"}, inplace= True)
+            chartdata6 = chartdata6.merge(SMA, on='Date', how='left')
+            return chartdata6
+        if duration =='10Y':
+            end6 = str(date.today())
+            start6 = str(date.today()- timedelta(days=3650))
+            chartdata6= stock_historical_data(ticker, start6, end6, resolution = '1D' )      
+            chartdata6.rename(columns={"time":"Date"}, inplace= True)
+            chartdata6 = chartdata6.merge(SMA, on='Date', how='left')
+        else:
+            start7 = str(Start_date)
+            end7 =  str(End_date)
+            chartdata7= stock_historical_data(ticker, start7, end7, resolution = '1D' )      
+            chartdata7.rename(columns={"time":"Date"}, inplace= True)
+            chartdata7 = chartdata7.merge(SMA, on='Date', how='left')
+            return chartdata7    
+    #BB Bollinger Bands BB_20
+        
+    def BB_20(ticker):
+        df = getchartdata(ticker)
+        df['BB_MA20'] = df['close'].rolling(window=20).mean()
+        df['BB_SD20'] = df['close'].rolling(window=20).std()
+        df['BB_UpperBand'] = df['BB_MA20'] + (df['BB_SD20']*2) # Default 2*SD
+        df['BB_LowerBand'] = df['BB_MA20'] - (df['BB_SD20']*2)
+        return df
+    
+    if ticker != '-': 
+        chartdata =  getchartdata(ticker)
+        fig = make_subplots(specs=[[{"secondary_y": True}]])      
+        if Plot == 'Line':
+            fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['close'], mode='lines', name = 'close'), secondary_y = False)
+            
+        else:   
+            fig.add_trace(go.Candlestick(x = chartdata['Date'], open = chartdata['open'], high = chartdata['high'], low = chartdata['low'], close = chartdata['close'], name = 'Candle'))
+        
+
+
+                 
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA20'], mode='lines', name = '20-day SMA'), secondary_y = False)
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA60'], mode='lines', name = '60-day SMA'), secondary_y = False)
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA100'], mode='lines', name = '100-day SMA'), secondary_y = False)
+        fig.add_trace(go.Bar(x = chartdata['Date'], y = chartdata['volume'], name = 'Volume'), secondary_y = True)
+
+        fig.update_yaxes(range=[0, chartdata['volume'].max()*3], showticklabels=False, secondary_y=True)
+        
+      
+        st.plotly_chart(fig)
+
+    if ticker != '-': 
+        # Create a Plotly figure
+       df = BB_20(ticker)
+       fig1=go.Figure()
+
+        # Add the price chart
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['close'], mode='lines', name='Price'))
+
+        # Add the Upper Bollinger Bans (UB) and shade the area
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_UpperBand'], mode='lines', name='Upper Bollinger Band', line=dict(color='red')))
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_LowerBand'], fill='tonexty',mode='lines', name='Lower Bollinger Band', line=dict(color='green')))
+
+       # Add the Middle Bollinger Band (MA)
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_MA20'],mode='lines', name='Middle Bollinger Band', line=dict(color='yellow')))
+
+        # Customize the chart layout
+       fig1.update_layout(title=  f"{ticker}" + ' Stock Price with Bollinger Bands', xaxis_title='Date',yaxis_title  = 'Price (VND)', showlegend= True)
+
+       # Show the chart
+       st.plotly_chart(fig1)
+           
+        
+#==============================================================================
+# Tab 3 Statistics
+#==============================================================================
+
+#The code below obtains information using get_stats_valuation and get_stats in
+#Yahoo Finance. It then slices the dataframes and displays them in different 
+#columns of the streamlit page under different headings.
+
+ def tab3():
+    st.title("Statitics")
+    st.write(ticker)
+    getstats= financial_ratio(symbol= ticker, report_range='yearly',is_all=False)
+    getstats1= getstats.T
+
+
+
+    getstats2= pd.DataFrame(index=getstats1.index)
+    st1= ['roe', 'roa']
+    for s in st1:
+        if s in getstats1.columns:
+          getstats2[f"{s}"]= getstats1[[s]]
+    
+    fig2 = go.Figure()
+    if 'roe' in getstats2.columns:
+        fig2.add_trace(go.Scatter(x=getstats2.index, y= getstats2['roe'], mode='lines+markers', name='ROE'))
+    
+    if 'roa' in getstats2.columns:
+      fig2.add_trace(go.Scatter(x=getstats2.index, y=getstats2['roa'], mode='lines+markers', name='ROA'))
+    fig2.update_layout(title="ROE & ROA in 5 year (2019-2023)",xaxis_title="Year",yaxis_title="Value")
+    st.plotly_chart(fig2)           
+     
+
+    
+    if 'grossProfitMargin' in getstats1.columns:
+         
+      getstats3 = getstats1[['grossProfitMargin']]
+      
+          
+      fig3 = go.Figure()
+      if 'grossProfitMargin' in getstats3.columns:
+        fig3.add_trace(go.Scatter(x=getstats3.index, y= getstats3['grossProfitMargin'], mode='lines+markers', name='Gross profit margin'))
+      fig3.update_layout(title="Gross profit margin in 5 year (2019-2023)",xaxis_title="Year",yaxis_title="Value")
+      st.plotly_chart(fig3)            
+                
+
+
+    st2= ['assetOnEquity', 'debtOnEquity', 'currentPayment']
+    getstats4= pd.DataFrame(index=getstats1.index)
+    for a in st2:    
+      if a in getstats1.columns:
+        getstats4[f"{a}"]= getstats1[[a]]
+    fig4 = go.Figure()
+    if 'assetOnEquity' in getstats4.columns:
+        fig4.add_trace(go.Scatter(x=getstats4.index, y= getstats4['assetOnEquity'], mode='lines+markers', name='Total asset turnover'))
+    
+    if 'debtOnEquity' in getstats4.columns:
+      fig4.add_trace(go.Scatter(x=getstats4.index, y=getstats4['debtOnEquity'], mode='lines+markers', name=' Debt to equity'))
+    if 'currentPayment' in getstats4.columns:
+      fig4.add_trace(go.Scatter(x=getstats4.index, y=getstats4['currentPayment'], mode='lines+markers', name='Current ratio'))
+    fig4.update_layout(title="Total asset turnover, Debt to equity & Current ratio in 5 year (2019-2023)",xaxis_title="Year",yaxis_title="Value")
+    st.plotly_chart(fig4)  
+
+
+
+    st3= ['priceToEarning', 'priceToBook']
+    getstats5= pd.DataFrame(index=getstats1.index)
+    for c in st3:  
+      if c in getstats1.columns:     
+        getstats5[f"{c}"]= getstats1[[c]]
+    fig8 = go.Figure()
+    if 'priceToEarning' in getstats5.columns:
+        fig8.add_trace(go.Scatter(x=getstats5.index, y= getstats5['priceToEarning'], mode='lines+markers', name='P/E'))
+    
+    if 'priceToBook' in getstats5.columns:
+      fig8.add_trace(go.Scatter(x=getstats5.index, y=getstats5['priceToBook'], mode='lines+markers', name=' P/B'))
+    fig8.update_layout(title="P/E & P/B in 5 year (2019-2023)",xaxis_title="Year",yaxis_title="Value")
+    st.plotly_chart(fig8) 
+
+
+         
+         
+#==============================================================================
+# Tab 4 Financials
+#==============================================================================
+
+
+ def tab4():
+      st.title("Financials")
+      st.write(ticker)
+    
+      statement = st.selectbox("Show", ['Income Statement', 'Balance Sheet', 'Cash Flow'])
+      period = st.selectbox("Period", ['Yearly', 'Quarterly'])
+      
+      @st.cache_data
+      def getyearlyincomestatement(ticker):
+            df= financial_flow(symbol=ticker, report_type='incomestatement', report_range='yearly')
+            df = df.drop(['ticker'], axis=1)
+            df= np.transpose(df)
+            return df
+      
+      @st.cache_data 
+      def getquarterlyincomestatement(ticker):
+            df1= financial_flow(symbol=ticker, report_type='incomestatement', report_range='quarterly')
+            df1= df1.reset_index()
+            df1.rename(columns={"index":"quarter"}, inplace= True)
+            df1 = df1.set_index(['quarter'])
+            df1 = df1.drop(['ticker'], axis=1)
+            df1= np.transpose(df1)
+            return df1
+      
+      @st.cache_data
+      def getyearlybalancesheet(ticker):
+            df2= financial_flow(symbol=ticker, report_type='balancesheet', report_range='yearly')
+            df2 = df2.drop(['ticker'], axis=1)
+            df2= np.transpose(df2)
+            return df2
+
+      
+      @st.cache_data
+      def getquarterlybalancesheet(ticker):
+            df3= financial_flow(symbol=ticker, report_type='balancesheet', report_range='quarterly')
+            df3= df3.reset_index()
+            df3.rename(columns={"index":"quarter"}, inplace= True)
+            df3 = df3.set_index(['quarter'])
+            df3 = df3.drop(['ticker'], axis=1)
+            df3= np.transpose(df3)
+            return df3   
+
+      @st.cache_data
+      def getyearlycashflow(ticker):
+            df4= financial_flow(symbol=ticker, report_type='cashflow', report_range='yearly')
+            df4 = df4.drop(['ticker'], axis=1)
+            df4= np.transpose(df4)
+            return df4
+            
+      
+      @st.cache_data
+      def getquarterlycashflow(ticker):
+            df5= financial_flow(symbol=ticker, report_type='cashflow', report_range='quarterly')
+            df5= df5.reset_index()
+            df5.rename(columns={"index":"quarter"}, inplace= True)
+            df5 = df5.set_index(['quarter'])
+            df5 = df5.drop(['ticker'], axis=1)
+            df5= np.transpose(df5)
+            return df5 
+        
+          
+      if ticker != '-' and statement == 'Income Statement' and period == 'Yearly':
+            data = getyearlyincomestatement(ticker)
+            st.table(data)
+            
+      if ticker != '-' and statement == 'Income Statement' and period == 'Quarterly':
+                data = getquarterlyincomestatement(ticker)
+                st.table(data)            
+
+      if ticker != '-' and statement == 'Balance Sheet' and period == 'Yearly':
+                data = getyearlybalancesheet(ticker)
+                st.table(data)            
+      
+      if ticker != '-' and statement == 'Balance Sheet' and period == 'Quarterly':
+                data = getquarterlybalancesheet(ticker)
+                st.table(data)        
+      
+      if ticker != '-' and statement == 'Cash Flow' and period == 'Yearly':
+                data = getyearlycashflow(ticker)
+                st.table(data)        
+      
+        
+      if ticker != '-' and statement == 'Cash Flow' and period == 'Quarterly':
+                data = getquarterlycashflow(ticker)
+                st.table(data)      
+                
+
+#==============================================================================
+# Tab 5 Analysis
+#==============================================================================
+
+ def tab5():
+    st.title("Efficient Frontier")
+    selected_tickers1 = st.multiselect("Select tickers in your portfolio", options = df9)
+    assets = list(selected_tickers1)
+    pf_data = pd.DataFrame()
+    for a in assets:
+       pf_data[a] = stock_historical_data(a, start_date= "2019-5-30", end_date="2024-5-30")['close']  
+    log_returns = np.log(pf_data / pf_data.shift(1))
+    num_assets = len(assets)
+    weights = np.random.random(num_assets)
+    weights /= np.sum(weights)
+    np.sum(weights * log_returns.mean()) * 250
+    np.dot(weights.T, np.dot(log_returns.cov() * 250, weights))
+    np.sqrt(np.dot(weights.T,np.dot(log_returns.cov() * 250, weights)))
+    pf_returns = []
+    pf_volatilities = []  
+    for x in range (1000):
+        weights = np.random.random(num_assets)
+        weights /= np.sum(weights)
+        pf_returns.append(np.sum(weights * log_returns.mean()) * 250)
+        pf_volatilities.append(np.sqrt(np.dot(weights.T,np.dot(log_returns.cov() * 250, weights))))
+    pf_returns = np.array(pf_returns)
+    pf_volatilities = np.array(pf_volatilities)
+    portfolios = pd.DataFrame({'Return': pf_returns, 'Volatility': pf_volatilities})
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(portfolios['Volatility'], portfolios['Return'])
+    ax.set_xlabel('Expected Volatility')
+    ax.set_ylabel('Expected Return')
+    st.pyplot(fig)
+    st.title("CAPM")
+    VNINDEX = pd.read_csv('/Users/bichtuyen/Downloads/VN Index Historical Data.csv')
+    VNINDEX['Date']=pd.to_datetime(VNINDEX['Date'], format = "%m/%d/%Y")
+    VNINDEX.set_index('Date', inplace=True)
+    VNINDEX.sort_index(inplace = True)
+    VNINDEX=VNINDEX[['Price']].rename(columns={'Price':'VNINDEX'})
+    VNINDEX["VNINDEX"] = [float(str(i).replace(",", "")) for i in VNINDEX["VNINDEX"]]
+    data = VNINDEX
+    for d in selected_tickers1:
+          data1 = stock_historical_data(d, "2019-05-30","2024-05-30" , "1D")
+          data1.rename(columns={"time":"Date"}, inplace= True)
+          data2 = data1[['Date', 'close']]
+          data2.rename(columns={"close":d}, inplace= True)
+          data2.set_index('Date', inplace=True)
+          data = pd.merge(data,data2, left_index=True, right_index=True)
+    daily_return_data= pd.DataFrame(index=data.index)
+    for col in data.columns:
+         daily_return_data[col]=data[col].pct_change()
+    daily_return_data=daily_return_data.dropna()
+    bonds_df = pd.read_csv("/Users/bichtuyen/Downloads/Vietnam 10-Year Bond Yield Historical Data.csv")
+    bonds_df['Date']=pd.to_datetime(bonds_df['Date'], format = "%m/%d/%Y")
+    bonds_df.set_index('Date', inplace=True)
+    bonds_df.sort_index(inplace = True)
+    bonds_df=bonds_df[['Price']].rename(columns={'Price':'Annualized_5yrs_bonds'})
+    bonds_df['Annualized_5yrs_bonds']=bonds_df['Annualized_5yrs_bonds']/100
+    # bonds_df['Daily_5yrs_bonds'] = (1/(1-bonds_df['Annualized_5yrs_bonds']* (3*365)/365))-1
+    # bonds_df['Daily_5yrs_bonds']= np.power(1+bonds_df['Annualized_5yrs_bonds'], 1/365)-1
+    bonds_df['Daily_5yrs_bonds']= (1+bonds_df['Annualized_5yrs_bonds'])**(1/365)-1
+    Daily_return_bonds_df5= pd.merge(daily_return_data, bonds_df, left_index= True, right_index=True)
+    tickers5= list(data.columns)
+    RmRF_df= pd.DataFrame(index=Daily_return_bonds_df5.index)
+    for t in tickers5:
+         RmRF_df[f"{t}mRF"]= Daily_return_bonds_df5[t]-Daily_return_bonds_df5['Daily_5yrs_bonds']
+    RmRF_df.cov()
+    cov = RmRF_df.cov()
+    VNINDEXmRF_var = cov.loc['VNINDEXmRF']['VNINDEXmRF'] # cov.iloc[-1][-1]
+    VNINDEXmRF_var= RmRF_df['VNINDEXmRF'].var()
+    beta_by_formula={}
+    for t in tickers5:
+     if t != 'VNINDEX':
+              beta_by_formula[t]= cov[f"{t}mRF"][-1]/VNINDEXmRF_var
+    yearly_returns={}
+    m=Daily_return_bonds_df5.shape[0]
+    yearly_returns['RM']= {
+           'cum': np.power((1+Daily_return_bonds_df5['VNINDEX']).prod(), 365/m)-1,
+           'avg': Daily_return_bonds_df5['VNINDEX'].mean()*252
+    }
+    yearly_returns['RF']= {
+           'cum': np.power((1+Daily_return_bonds_df5['Daily_5yrs_bonds']).prod(), 365/m)-1,
+           'avg': Daily_return_bonds_df5['Daily_5yrs_bonds'].mean()*252
+    }
+    CAPM = {
+           'avg': {},
+           'cum': {}
+    }
+    for _ticker, _beta in beta_by_formula.items():
+           CAPM['avg'][_ticker]= round(yearly_returns['RF']['avg'] + _beta * (yearly_returns['RM']['avg']-yearly_returns['RF']['avg']),4)
+           CAPM['cum'][_ticker]= round(yearly_returns['RF']['cum'] + _beta * (yearly_returns['RM']['cum']-yearly_returns['RF']['cum']),4)
+    return_data = {
+           'Mean_CAPM': CAPM['avg'],
+           'Cumulative_CAPM': CAPM['cum']
+    }
+    compare_df=pd.DataFrame(data=return_data)
+    compare_df
+
+
+#==============================================================================
+# Tab 6 Monte Carlo Simulation
+#==============================================================================
+
+#The code below performs and displays the monte carlo simulation for a specified
+#time horizon and number of intervals
+
+
+
+ def tab6():
+     st.title("Monte Carlo Simulation")
+     st.write(ticker)
+     
+     #Dropdown for selecting simulation and horizon
+     simulations = st.selectbox("Number of Simulations (n)", [200, 500, 1000])
+     time_horizon = st.selectbox("Time Horizon (t)", [30, 60, 90])
+     
+     #The code below takes past 30 day data using get_data. Then it gets the close
+     #price column and uses .pct_change() to get the daily return. Daily volatility 
+     #is then calculated as the standard deviation of the daily return.
+   
+     def montecarlo(ticker, time_horizon, simulations):
+         end = str(date.today())
+         start = str(date.today()- timedelta(days=365))
+         stock_price = stock_historical_data(ticker, start, end, "1D")
+         close_price1 = stock_price['close']
+         close_price= np.array(close_price1)
+         daily_return = close_price1.pct_change()
+         daily_volatility = np.std(daily_return)
+
+
+         #Initialize the simulation dataframe    
+         simulations_df = pd.DataFrame()
+     
+         for i in range(simulations):        
+                      
+                # The list to store the next stock price
+                next_price = []
+    
+    #    Create the next stock price
+                last_price = close_price[-1]
+    
+                for x in range(time_horizon):
+                               
+                      # Generate the random percentage change around the mean (0) and std (daily_volatility)
+                      future_return = np.random.normal(0, daily_volatility)
+
+            # Generate the random future price
+                      future_price = last_price * (1 + future_return)
+
+            # Save the price and go next
+                      next_price.append(future_price)
+                      last_price = future_price
+    
+    #    Store the result of the simulation
+                simulations_df[i] = next_price
+                
+         return simulations_df   
+          
+#The code below plots the monte carlo simulation using maplotlib. It also calculates
+#variance at risk and displays it. the VAR is calculated using the last row of
+#the montecarlo simulation. the distribution of this ending price is displaued and
+#the 5th percentile of the distribution is marked
+     if ticker != '-':
+         mc = montecarlo(ticker, time_horizon, simulations)
+                  
+         end_date = datetime.now().date()
+         start_date = end_date - timedelta(days=30)
+         start= str(start_date)
+         end = str(end_date)
+         stock_price = stock_historical_data(ticker, start, end,"1D")
+         close_price1 = stock_price['close']
+         close_price= np.array(close_price1)
+         
+         fig, ax = plt.subplots(figsize=(15, 10))
+         
+
+         ax.plot(mc)
+         plt.title('Monte Carlo simulation for ' + str(ticker) + ' stock price in next ' + str(time_horizon) + ' days')
+         plt.xlabel('Day')
+         plt.ylabel('Price')
+         
+         
+         plt.axhline(y= close_price[-1], color ='red')
+         plt.legend(['Current stock price is: ' + str(np.round(close_price[-1], 2))])
+         leg = ax.get_legend()
+         leg.legend_handles[0].set_color('red')
+
+         st.pyplot(fig)
+         
+         # Value at Risk
+         st.subheader('Value at Risk (VaR)')
+         ending_price = mc.iloc[-1:, :].values[0, ]
+         fig1, ax = plt.subplots(figsize=(15, 10))
+         ax.hist(ending_price, bins=50)
+         plt.axvline(np.percentile(ending_price, 5), color='red', linestyle='--', linewidth=1)
+         plt.legend(['5th Percentile of the Future Price: ' + str(np.round(np.percentile(ending_price, 5), 2))])
+         plt.title('Distribution of the Ending Price')
+         plt.xlabel('Price')
+         plt.ylabel('Frequency')
+         st.pyplot(fig1)
+         
+         
+         future_price_95ci = np.percentile(ending_price, 5)
+         # Value at Risk
+         VaR = close_price[-1] - future_price_95ci
+         st.write('VaR at 95% confidence interval is: ' + str(np.round(VaR, 2)) + ' VND')
+         
+         
+
+#==============================================================================
+# Tab 7 Your Portfolio's Trend
+#==============================================================================
+
+ def tab7():
+      st.title("Your Portfolio's Trend")
+      selected_tickers5 = st.multiselect("Select tickers in your portfolio", options = ticker_VN)
+      now = str(date.today())
+      start = str(date.today()- timedelta(days=1825))
+      DATA20 = pd.DataFrame()
+      for g in selected_tickers5:
+          DATA1 = stock_historical_data(g, start, now , resolution='1D')
+          DATA1.rename(columns={"time":"Date"}, inplace= True)
+          DATA20['Date']= DATA1['Date']
+          DATA20[f"{g}"]= DATA1['close']
+      fig=go.Figure()
+       # Add the price chart
+      for g in selected_tickers5:
+        fig.add_trace(go.Scatter(x=DATA20['Date'], y=DATA20[g], mode='lines', name=g))
+
+        fig.update_layout(title="Portfolio's Trend", xaxis_title='Year', yaxis_title='Close')
+      st.plotly_chart(fig) 
+ 
+
+ def tab8():
+      st.title("CAPM")
+      selected_tickers2 = st.multiselect("Select tickers in your portfolio", options = df9)
+      VNINDEX = pd.read_csv('/Users/bichtuyen/Downloads/VN Index Historical Data.csv')
+      VNINDEX['Date']=pd.to_datetime(VNINDEX['Date'], format = "%m/%d/%Y")
+      VNINDEX.set_index('Date', inplace=True)
+      VNINDEX.sort_index(inplace = True)
+      VNINDEX=VNINDEX[['Price']].rename(columns={'Price':'VNINDEX'})
+      VNINDEX["VNINDEX"] = [float(str(i).replace(",", "")) for i in VNINDEX["VNINDEX"]]
+      data = VNINDEX
+      for d in selected_tickers2:
+          data1 = stock_historical_data(d, "2019-05-30","2024-05-30" , "1D")
+          data1.rename(columns={"time":"Date"}, inplace= True)
+          data2 = data1[['Date', 'close']]
+          data2.rename(columns={"close":d}, inplace= True)
+          data2.set_index('Date', inplace=True)
+          data = pd.merge(data,data2, left_index=True, right_index=True)
+      daily_return_data= pd.DataFrame(index=data.index)
+      for col in data.columns:
+         daily_return_data[col]=data[col].pct_change()
+      daily_return_data=daily_return_data.dropna()
+      bonds_df = pd.read_csv("/Users/bichtuyen/Downloads/Vietnam 10-Year Bond Yield Historical Data.csv")
+      bonds_df['Date']=pd.to_datetime(bonds_df['Date'], format = "%m/%d/%Y")
+      bonds_df.set_index('Date', inplace=True)
+      bonds_df.sort_index(inplace = True)
+      bonds_df=bonds_df[['Price']].rename(columns={'Price':'Annualized_5yrs_bonds'})
+      bonds_df['Annualized_5yrs_bonds']=bonds_df['Annualized_5yrs_bonds']/100
+      # bonds_df['Daily_5yrs_bonds'] = (1/(1-bonds_df['Annualized_5yrs_bonds']* (3*365)/365))-1
+      # bonds_df['Daily_5yrs_bonds']= np.power(1+bonds_df['Annualized_5yrs_bonds'], 1/365)-1
+      bonds_df['Daily_5yrs_bonds']= (1+bonds_df['Annualized_5yrs_bonds'])**(1/365)-1
+      Daily_return_bonds_df5= pd.merge(daily_return_data, bonds_df, left_index= True, right_index=True)
+      tickers5= list(data.columns)
+      RmRF_df= pd.DataFrame(index=Daily_return_bonds_df5.index)
+      for t in tickers5:
+         RmRF_df[f"{t}mRF"]= Daily_return_bonds_df5[t]-Daily_return_bonds_df5['Daily_5yrs_bonds']
+      RmRF_df.cov()
+      cov = RmRF_df.cov()
+      VNINDEXmRF_var = cov.loc['VNINDEXmRF']['VNINDEXmRF'] # cov.iloc[-1][-1]
+      VNINDEXmRF_var= RmRF_df['VNINDEXmRF'].var()
+      beta_by_formula={}
+      for t in tickers5:
+         if t != 'VNINDEX':
+              beta_by_formula[t]= cov[f"{t}mRF"][-1]/VNINDEXmRF_var
+      yearly_returns={}
+      m=Daily_return_bonds_df5.shape[0]
+      yearly_returns['RM']= {
+           'cum': np.power((1+Daily_return_bonds_df5['VNINDEX']).prod(), 365/m)-1,
+           'avg': Daily_return_bonds_df5['VNINDEX'].mean()*252
+      }
+      yearly_returns['RF']= {
+           'cum': np.power((1+Daily_return_bonds_df5['Daily_5yrs_bonds']).prod(), 365/m)-1,
+           'avg': Daily_return_bonds_df5['Daily_5yrs_bonds'].mean()*252
+      }
+      CAPM = {
+           'avg': {},
+           'cum': {}
+      }
+      for _ticker, _beta in beta_by_formula.items():
+           CAPM['avg'][_ticker]= round(yearly_returns['RF']['avg'] + _beta * (yearly_returns['RM']['avg']-yearly_returns['RF']['avg']),4)
+           CAPM['cum'][_ticker]= round(yearly_returns['RF']['cum'] + _beta * (yearly_returns['RM']['cum']-yearly_returns['RF']['cum']),4)
+      return_data = {
+           'Mean_CAPM': CAPM['avg'],
+           'Cumulative_CAPM': CAPM['cum']
+      }
+      compare_df=pd.DataFrame(data=return_data)
+      compare_df
+elif country =='UNITED STATE':
+    ticker = st.sidebar.selectbox("Select a ticker",ticker_US )
+    def tab11():
+    
+      st.title("Summary")
+      st.write("Select ticker on the left to begin")
+      st.write(ticker)
+      def getsummary(ticker):
+            df = yf.Ticker(ticker).info
+            df = pd.DataFrame(list(df.items()), columns=['', 'Value'])
+            table  = df.set_index([''])
+            return table 
+        
+      c1, c2 = st.columns((1,1))
+      with c1:        
+        if ticker != '-':
+            summary = getsummary(ticker)
+            summary.iloc[[27,28,48,49,89,43,45]]
+            
+            
+      with c2:        
+        if ticker != '-':
+            summary = getsummary(ticker)
+            summary.iloc[[52,40,41,61,36,37,116,120]]
+
+
+      def getstockdata(ticker):
+        stockdata = yf.download(ticker, period = 'max')
+        return stockdata
+        
+      if ticker != '-':
+            chartdata = getstockdata(ticker) 
+                       
+            fig = px.area(chartdata, chartdata.index, chartdata['Close'])
+            
+                     
+
+            fig.update_xaxes(
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=1, label="1M", step="month", stepmode="backward"),
+                        dict(count=3, label="3M", step="month", stepmode="backward"),
+                        dict(count=6, label="6M", step="month", stepmode="backward"),
+                        dict(count=1, label="YTD", step="year", stepmode="todate"),
+                        dict(count=1, label="1Y", step="year", stepmode="backward"),
+                        dict(count=3, label="3Y", step="year", stepmode="backward"),
+                        dict(count=5, label="5Y", step="year", stepmode="backward"),
+                        dict(label = "MAX", step="all")
+                    ])
+                )
+            )
+            st.plotly_chart(fig)
+            
+     
+              
+    
+#==============================================================================
+# Tab 2 Chart
+#==============================================================================
+
+
+#The code below divides the streamlit page into 5 columns. The first two columns
+#have a date picker option to select start and end dates and the the other three
+#have dropdown selection boxes for duration, interval, and type of plot.
+
+    def tab12():
+      st.title("Chart")
+      st.write(ticker)
+    
+      st.write("Set duration to '-' to select date range")
+    
+      c1, c2, c3, c4,c5 = st.columns((1,1,1,1,1))
+    
+      with c1:
+        
+        start_date = st.date_input("Start date", datetime.today().date() - timedelta(days=30))
+        
+      with c2:
+        
+        end_date = st.date_input("End date", datetime.today().date())        
+        
+      with c3:
+        
+        duration = st.selectbox("Select duration", ['-', '1Mo', '3Mo', '6Mo', 'YTD','1Y', '3Y','5Y', 'MAX'])          
+        
+      with c4: 
+        
+        inter = st.selectbox("Select interval", ['1d', '1mo'])
+        
+      with c5:
+        
+        plot = st.selectbox("Select Plot", ['Line', 'Candle'])
+        
+ 
+#The code below first obtains all the data using the download option from yahoo finance.
+#It then creates a column for the simple moving average, makes the date index into a column
+#and then subsets the dataframe to get just the date and and SMA column.
+#Then if a duration is selected from the dropdown, data for that duration is downloaded
+# and the SMA column is merged to the dataframe. If a duration is not selected then
+#automatically the specified date range is used to get the data and that is also merged
+#with the SMA column
+#References:
+#https://towardsdatascience.com/data-science-in-finance-56a4d99279f7
+
+           
+                       
+      def getchartdata(ticker):
+        SMA = yf.download(ticker, period = 'MAX')
+        SMA = SMA.reset_index()
+        SMA['SMA20'] = SMA['Close'].rolling(20).mean()
+        SMA['SMA60'] = SMA['Close'].rolling(60).mean()
+        SMA['SMA100'] = SMA['Close'].rolling(100).mean()
+        SMA = SMA[['Date','SMA20','SMA60', 'SMA100']]
+        
+        if duration != '-':        
+            chartdata1 = yf.download(ticker, period = duration, interval = inter)
+            chartdata1 = chartdata1.reset_index()
+            chartdata1 = chartdata1.merge(SMA, on='Date', how='left')
+            return chartdata1
+        else:
+            chartdata2 = yf.download(ticker, start_date, end_date, interval = inter)
+            chartdata2 = chartdata2.reset_index()
+            chartdata2 = chartdata2.merge(SMA, on='Date', how='left')                             
+            return chartdata2
+    
+#The code below uses plotly to visualize the data. Subplots from plotly is used to make 2 y axis.
+#First y axis shows the stock close price and SMA and the second is used to show volume. 
+#Plotly graph objects are used to add graphs to the axes.The range for the y axis for 
+#volume is manipulated so that the bars appear small.
+#References:
+#https://plotly.com/python/multiple-axes/   
+#https://plotly.com/python/candlestick-charts/    
+      def BB_20(ticker):
+        df = getchartdata(ticker)
+        df['BB_MA20'] = df['Close'].rolling(window=20).mean()
+        df['BB_SD20'] = df['Close'].rolling(window=20).std()
+        df['BB_UpperBand'] = df['BB_MA20'] + (df['BB_SD20']*2) # Default 2*SD
+        df['BB_LowerBand'] = df['BB_MA20'] - (df['BB_SD20']*2)
+        return df
+    
+      if ticker != '-': 
+        chartdata =  getchartdata(ticker)
+        fig = make_subplots(specs=[[{"secondary_y": True}]])      
+        if plot == 'Line':
+            fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['Close'], mode='lines', name = 'Close'), secondary_y = False)
+            
+        else:   
+            fig.add_trace(go.Candlestick(x = chartdata['Date'], open = chartdata['Open'], high = chartdata['High'], low = chartdata['Low'], close = chartdata['Close'], name = 'Candle'))
+        
+
+
+                 
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA20'], mode='lines', name = '20-day SMA'), secondary_y = False)
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA60'], mode='lines', name = '60-day SMA'), secondary_y = False)
+        fig.add_trace(go.Scatter(x=chartdata['Date'], y=chartdata['SMA100'], mode='lines', name = '100-day SMA'), secondary_y = False)
+        fig.add_trace(go.Bar(x = chartdata['Date'], y = chartdata['Volume'], name = 'Volume'), secondary_y = True)
+
+        fig.update_yaxes(range=[0, chartdata['Volume'].max()*3], showticklabels=False, secondary_y=True)
+        
+      
+        st.plotly_chart(fig)
+
+      if ticker != '-': 
+        # Create a Plotly figure
+       df = BB_20(ticker)
+       fig1=go.Figure()
+
+        # Add the price chart
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['Close'], mode='lines', name='Price'))
+
+        # Add the Upper Bollinger Bans (UB) and shade the area
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_UpperBand'], mode='lines', name='Upper Bollinger Band', line=dict(color='red')))
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_LowerBand'], fill='tonexty',mode='lines', name='Lower Bollinger Band', line=dict(color='green')))
+
+       # Add the Middle Bollinger Band (MA)
+       fig1.add_trace(go.Scatter(x=df['Date'], y=df['BB_MA20'],mode='lines', name='Middle Bollinger Band', line=dict(color='yellow')))
+
+        # Customize the chart layout
+       fig1.update_layout(title=  f"{ticker}" + ' Stock Price with Bollinger Bands', xaxis_title='Date',yaxis_title  = 'Price (VND)', showlegend= True)
+
+       # Show the chart
+       st.plotly_chart(fig1)    
+        
+      
+             
+
+#==============================================================================
+# Tab 3 Statistics
+#==============================================================================
+
+#The code below obtains information using get_stats_valuation and get_stats in
+#Yahoo Finance. It then slices the dataframes and displays them in different 
+#columns of the streamlit page under different headings.
+
+    def tab13():
+     st.title("Statistics")
+     st.write(ticker)
+     def stat(ticker):
+            df = yf.Ticker(ticker).info
+            df = pd.DataFrame(list(df.items()), columns=['', 'Value'])
+            table  = df.set_index([''])
+            return table 
+
+     st.header("Valuation Measures")
+     def getvaluation(ticker):
+       return si.get_stats_valuation(ticker)
+    
+     if ticker != '-':
+                valuation = getvaluation(ticker)
+                valuation['Unnamed: 0'] = valuation['Unnamed: 0'].astype(str)
+                valuation = valuation.rename(columns = {'Unnamed: 0': 'Attribute'})
+                valuation.set_index('Attribute', inplace=True)
+                st.table(valuation)
+                
+     c1, c2 = st.columns(2)
+     
+
+     with c1:
+         st.header("Financial Highlights")
+         st.subheader("Fiscal Year")
+         
+         if ticker != '-':
+               summary = stat(ticker)
+               summary.iloc[[77,78,79]]
+                
+        
+         st.subheader("Profitability")
+         
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[62,40]]
+                
+                
+                
+         st.subheader("Management Effectiveness")
+         
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[122,123]]
+         
+         
+                
+         st.subheader("Income Statement")
+         
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[119,121,127,128,129,81,126]] 
+            
+         
+         st.subheader("Balance Sheet")
+         
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[113,114,116,120,118,75]]
+         
+         st.subheader("Cash Flow Statement")
+         
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[125,124]]
+         
+        
+                           
+     with c2:
+         st.header("Trading Information")
+         
+         
+         st.subheader("Stock Price History")
+                  
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[39,89,90,54,53,56,57]]
+         
+         st.subheader("Share Statistics")
+                  
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[44,45,64,74,63,70,71,65,72,73,69,65]]
+         
+         st.subheader("Dividends & Splits")
+                  
+         if ticker != '-':
+                summary = stat(ticker)
+                summary.iloc[[91,92,58,59]]
+         
+         
+            
+     
+
+#==============================================================================
+# Tab 4 Financials
+#==============================================================================
+
+#The code below obtains yearly and quartely financial statements from Yahoo Finance
+#and displays them according the options selected by the users in streamlit. A
+#combination of if statements is used to display according to the selected options.
+
+
+    def tab14():
+      st.title("Financials")
+      st.write(ticker)
+      
+      statement = st.selectbox("Show", ['Income Statement', 'Balance Sheet', 'Cash Flow'])
+      period = st.selectbox("Period", ['Yearly', 'Quarterly'])
+      
+      
+      def getyearlyincomestatement(ticker):
+            return yf.Ticker(ticker).financials
+      
+      
+      def getquarterlyincomestatement(ticker):
+            return yf.Ticker(ticker).quarterly_financials
+      
+      
+      def getyearlybalancesheet(ticker):
+            return yf.Ticker(ticker).balance_sheet
+      
+      
+      def getquarterlybalancesheet(ticker):
+            return  yf.Ticker(ticker).quarterly_balance_sheet    
+
+      
+      def getyearlycashflow(ticker):
+            return yf.Ticker(ticker).cashflow
+      
+      
+      def getquarterlycashflow(ticker):
+            return yf.Ticker(ticker).quarterly_cashflow
+        
+          
+      if ticker != '-' and statement == 'Income Statement' and period == 'Yearly':
+                data = getyearlyincomestatement(ticker)
+                st.table(data)
+            
+      if ticker != '-' and statement == 'Income Statement' and period == 'Quarterly':
+                data = getquarterlyincomestatement(ticker)
+                st.table(data)            
+
+      if ticker != '-' and statement == 'Balance Sheet' and period == 'Yearly':
+                data = getyearlybalancesheet(ticker)
+                st.table(data)            
+      
+      if ticker != '-' and statement == 'Balance Sheet' and period == 'Quarterly':
+                data = getquarterlybalancesheet(ticker)
+                st.table(data)        
+      
+      if ticker != '-' and statement == 'Cash Flow' and period == 'Yearly':
+                data = getyearlycashflow(ticker)
+                st.table(data)        
+      
+        
+      if ticker != '-' and statement == 'Cash Flow' and period == 'Quarterly':
+                data = getquarterlycashflow(ticker)
+                st.table(data)      
+                
+                 
+        
+      
+        
+  
+            
+#==============================================================================
+# Tab 5 Efficient Frontier
+#==============================================================================
+    def tab15():
+      st.title("Efficient Frontier")
+      selected_tickers1 = st.multiselect("Select tickers in your portfolio", options = ticker_US)
+      assets = list(selected_tickers1)
+      pf_data = pd.DataFrame()
+      for a in assets:
+       pf_data[a] = stock_historical_data(a, start_date= "2019-5-30", end_date="2024-5-30")['close']  
+      log_returns = np.log(pf_data / pf_data.shift(1))
+      num_assets = len(assets)
+      weights = np.random.random(num_assets)
+      weights /= np.sum(weights)
+      np.sum(weights * log_returns.mean()) * 250
+      np.dot(weights.T, np.dot(log_returns.cov() * 250, weights))
+      np.sqrt(np.dot(weights.T,np.dot(log_returns.cov() * 250, weights)))
+      pf_returns = []
+      pf_volatilities = []  
+      for x in range (1000):
+        weights = np.random.random(num_assets)
+        weights /= np.sum(weights)
+        pf_returns.append(np.sum(weights * log_returns.mean()) * 250)
+        pf_volatilities.append(np.sqrt(np.dot(weights.T,np.dot(log_returns.cov() * 250, weights))))
+      pf_returns = np.array(pf_returns)
+      pf_volatilities = np.array(pf_volatilities)
+      portfolios = pd.DataFrame({'Return': pf_returns, 'Volatility': pf_volatilities})
+      fig, ax = plt.subplots(figsize=(10, 6))
+      ax.scatter(portfolios['Volatility'], portfolios['Return'])
+      ax.set_xlabel('Expected Volatility')
+      ax.set_ylabel('Expected Return')
+      st.pyplot(fig)
+
+#==============================================================================
+# Tab 6 Monte Carlo Simulation
+#==============================================================================
+
+#The code below performs and displays the monte carlo simulation for a specified
+#time horizon and number of intervals
+# for i in range(6):
+# "https://finance.yahoo.com/quote/" + ticker +  "/analysis" 
+
+    def tab16():
+     st.title("Monte Carlo Simulation")
+     st.write(ticker)
+     
+     #Dropdown for selecting simulation and horizon
+     simulations = st.selectbox("Number of Simulations (n)", [200, 500, 1000])
+     time_horizon = st.selectbox("Time Horizon (t)", [30, 60, 90])
+     
+     #The code below takes past 30 day data using get_data. Then it gets the close
+     #price column and uses .pct_change() to get the daily return. Daily volatility 
+     #is then calculated as the standard deviation of the daily return.
+
+     def montecarlo(ticker, time_horizon, simulations):
+     
+         end_date = datetime.now().date()
+         start_date = end_date - timedelta(days=30)
+     
+         stock_price = yf.download(ticker, start_date, end_date)
+         close_price = stock_price['Close']
+     
+     
+         daily_return = close_price.pct_change()
+         daily_volatility = np.std(daily_return)
+     
+         #Initialize the simulation dataframe    
+         simulation_df = pd.DataFrame()
+     
+         for i in range(simulations):        
+                      
+                # The list to store the next stock price
+                next_price = []
+    
+    #    Create the next stock price
+                last_price = close_price[-1]
+    
+                for x in range(time_horizon):
+                               
+                      # Generate the random percentage change around the mean (0) and std (daily_volatility)
+                      future_return = np.random.normal(0, daily_volatility)
+
+            # Generate the random future price
+                      future_price = last_price * (1 + future_return)
+
+            # Save the price and go next
+                      next_price.append(future_price)
+                      last_price = future_price
+    
+    #    Store the result of the simulation
+                simulation_df[i] = next_price
+                
+         return simulation_df   
+          
+#The code below plots the monte carlo simulation using maplotlib. It also calculates
+#variance at risk and displays it. the VAR is calculated using the last row of
+#the montecarlo simulation. the distribution of this ending price is displaued and
+#the 5th percentile of the distribution is marked
+
+
+     if ticker != '-':
+         mc = montecarlo(ticker, time_horizon, simulations)
+                  
+         end_date = datetime.now().date()
+         start_date = end_date - timedelta(days=30)
+         
+         stock_price = yf.download(ticker, start_date, end_date)
+         close_price = stock_price['Close']
+         
+         fig, ax = plt.subplots(figsize=(15, 10))
+         
+
+         ax.plot(mc)
+         plt.title('Monte Carlo simulation for ' + str(ticker) + ' stock price in next ' + str(time_horizon) + ' days')
+         plt.xlabel('Day')
+         plt.ylabel('Price')
+         
+         
+         plt.axhline(y= close_price[-1], color ='red')
+         plt.legend(['Current stock price is: ' + str(np.round(close_price[-1], 2))])
+         ax.get_legend().legend_handles[0].set_color('red')
+
+         st.pyplot(fig)
+         
+         # Value at Risk
+         st.subheader('Value at Risk (VaR)')
+         ending_price = mc.iloc[-1:, :].values[0, ]
+         fig1, ax = plt.subplots(figsize=(15, 10))
+         ax.hist(ending_price, bins=50)
+         plt.axvline(np.percentile(ending_price, 5), color='red', linestyle='--', linewidth=1)
+         plt.legend(['5th Percentile of the Future Price: ' + str(np.round(np.percentile(ending_price, 5), 2))])
+         plt.title('Distribution of the Ending Price')
+         plt.xlabel('Price')
+         plt.ylabel('Frequency')
+         st.pyplot(fig1)
+         
+         
+         future_price_95ci = np.percentile(ending_price, 5)
+         # Value at Risk
+         VaR = close_price[-1] - future_price_95ci
+         st.write('VaR at 95% confidence interval is: ' + str(np.round(VaR, 2)) + ' USD')
+         
+         
+     
+  
+#==============================================================================
+# Tab 7 Your Portfolio's Trend
+#==============================================================================
+
+#The code below uses a multiselect box to allow user to select multiple tickers.
+#Then a new dataframe is created with each ticker as a column. A for loop is used to
+#populate each column with the close price of that ticker. Then plotly is used to 
+#visualize the trend of the selected portfolio
+#Reference:
+#https://blog.quantinsti.com/stock-market-data-analysis-python/
+
+
+    def tab17():
+      st.title("Your Portfolio's Trend")
+      alltickers = ticker_US
+      selected_tickers = st.multiselect("Select tickers in your portfolio", options = alltickers)
+      
+      
+      df = pd.DataFrame(columns=selected_tickers)
+      for ticker in selected_tickers:
+          df[ticker] = yf.download(ticker, period = '5Y')['Close']
+      
+      fig = px.line(df)
+      st.plotly_chart(fig) 
+def run():
+    if country =='VIETNAM':
+    # Add a radio box
+     select_tab = st.sidebar.radio("Select tab", ['Summary', 'Chart', 'Statistics', 'Financials', 'Efficient Frontier & CAPM', 'Monte Carlo Simulation', "Your Portfolio's Trend"])
+    
+    # Show the selected tab
+     if select_tab == 'Summary':
+        tab1()
+     elif select_tab == 'Chart':
+        tab2()
+     elif select_tab == 'Statistics':
+        tab3()
+     elif select_tab == 'Financials':
+        tab4()
+     elif select_tab == 'Efficient Frontier & CAPM':
+        tab5()
+     elif select_tab == 'Monte Carlo Simulation':
+        tab6()
+     elif select_tab == "Your Portfolio's Trend":
+        tab7()
+
+    elif country =='UNITED STATE':
+        # Add a radio box
+     select_tab = st.sidebar.radio("Select tab", ['Summary', 'Chart', 'Statistics', 'Financials', 'Monte Carlo Simulation', "Your Portfolio's Trend"])
+    
+    # Show the selected tab
+     if select_tab == 'Summary':
+        tab11()
+     elif select_tab == 'Chart':
+        tab12()
+     elif select_tab == 'Statistics':
+        tab13()
+     elif select_tab == 'Financials':
+        tab14()
+     elif select_tab == 'Efficient Frontier':
+        tab15()
+     elif select_tab == 'Monte Carlo Simulation':
+        tab16()
+     elif select_tab == "Your Portfolio's Trend":
+        tab17()
+       
+    
+if __name__ == "__main__":
+    run() 

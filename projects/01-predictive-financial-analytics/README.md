@@ -28,5 +28,5 @@ Phương pháp đầu tư giá trị của Benjamin Graham đã chứng minh đ�
 ## Technologies Used
 Python
 
-## Report
+## [Report](projects/01-predictive-financial-analytics/Predictive Financial Analytics and Risk Assessment Using Python.pdf)
 Viết 2–3 câu.
